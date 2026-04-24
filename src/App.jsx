@@ -659,8 +659,8 @@ function GenerateTab({ onGenerated }) {
         try {
           // 채널 간 5초 딜레이 (rate limit 방지)
           if (count > 1) {
-            setProgress({ current: count, total, label: `⏳ 대기 중... → ${CHANNELS[ch].icon} ${kw.keyword}` });
-            await delay(5000);
+            setProgress({ current: count, total, label: `⏳ 대기 중(15초)... → ${CHANNELS[ch].icon} ${kw.keyword}` });
+            await delay(15000);
             setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
           }
           const plan = await callClaude(kw.keyword, ch, kw.note);
