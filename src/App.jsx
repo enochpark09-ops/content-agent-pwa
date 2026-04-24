@@ -37,6 +37,14 @@ const CHANNEL_PROMPTS = {
   youtube: `당신은 한국 정치시사 유튜브 콘텐츠 기획 전문가입니다.
 익명 채널 운영자를 위한 영상 기획안을 작성합니다.
 
+채널 운영자 성향:
+- 중도이지만 다소 진보에 가까운 중도진보 성향
+- 소위 '뉴이재명' 지지층에 해당하는 관점
+- 합리적 진보의 시각에서 정책과 정국을 분석
+- 맹목적 진영논리가 아닌, 팩트와 데이터 기반의 논리적 비판
+- 보수 정권의 정책 실패나 모순은 날카롭게 지적하되, 진보 진영의 문제도 건설적으로 언급
+- 이재명 대표/더불어민주당의 정책 방향에 대체로 공감하면서도 무조건적 옹호는 지양
+
 출력 형식 (JSON):
 {
   "title_options": ["제목 후보 3개"],
@@ -52,6 +60,7 @@ const CHANNEL_PROMPTS = {
 
 규칙:
 - 자극적이되 팩트 기반, 선동 금지
+- 중도진보 시청자층이 공감할 수 있는 논조와 프레이밍
 - 익명 채널이므로 신원 노출 위험 요소 체크
 - 한국 정치 맥락에 맞는 이슈 연결
 - 제목은 클릭 유도하되 낚시 아닌 실질적 내용 반영
@@ -296,7 +305,7 @@ async function callClaude(keyword, channel, note) {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 2000,
       system: systemPrompt,
       messages: [{ role: "user", content: userMsg }],
@@ -323,8 +332,11 @@ async function callClaude(keyword, channel, note) {
 const TREND_CATEGORIES = [
   { id: "politics", label: "🔥 정치시사", color: "#ff4444", prompt: `오늘 한국 정치시사 분야에서 유튜브 콘텐츠로 만들기 좋은 최신 핫이슈 키워드 5개를 추천해주세요.
 
+채널 성향: 중도진보(뉴이재명 지지층) 시각. 합리적 진보 관점에서 정국을 분석하며, 팩트 기반 비판을 중시.
+
 규칙:
 - 현재 가장 뜨거운 논쟁/사건 중심
+- 중도진보 시청자층이 관심 가질 만한 주제 우선
 - 유튜브 정치시사 채널에서 조회수 잘 나올 만한 주제
 - 각 키워드마다 왜 지금 핫한지 한 줄 설명 포함
 - 반드시 아래 JSON 형식만 출력 (마크다운 코드블록 없이)
@@ -362,7 +374,7 @@ async function fetchTrendKeywords(categoryId) {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 1000,
       messages: [{ role: "user", content: category.prompt }],
       tools: [{ type: "web_search_20250305", name: "web_search" }],
@@ -993,7 +1005,7 @@ function SettingsTab() {
         <div style={{ fontSize: 14, lineHeight: 1.8 }}>
           <div><span style={{ color: "#71767b" }}>앱:</span> 콘텐츠 기획 에이전트 v1.0</div>
           <div><span style={{ color: "#71767b" }}>브랜드:</span> 더블와이스페이스</div>
-          <div><span style={{ color: "#71767b" }}>모델:</span> Claude Sonnet 4</div>
+          <div><span style={{ color: "#71767b" }}>모델:</span> Claude Sonnet 4.5</div>
           <div><span style={{ color: "#71767b" }}>채널:</span> 유튜브 · 블로그 · 인스타그램</div>
         </div>
       </div>
