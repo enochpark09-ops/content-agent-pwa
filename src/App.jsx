@@ -292,7 +292,9 @@ const S = {
 };
 
 // ── API Call ──────────────────────────────────────────────────────────
-async function callClaude(keyword, channel, note) {
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function callClaude(keyword, channel, note, retryCount = 0) {
   const key = API_KEY();
   if (!key) throw new Error("API 키를 설정해주세요.");
 
@@ -311,6 +313,13 @@ async function callClaude(keyword, channel, note) {
       messages: [{ role: "user", content: userMsg }],
     }),
   });
+
+  if (res.status === 429 && retryCount < 2) {
+    const waitSec = 30 + retryCount * 15;
+    console.log(`Rate limited. Waiting ${waitSec}s before retry...`);
+    await delay(waitSec * 1000);
+    return callClaude(keyword, channel, note, retryCount + 1);
+  }
 
   if (!res.ok) {
     const err = await res.text();
@@ -363,7 +372,7 @@ const TREND_CATEGORIES = [
 {"keywords": [{"keyword": "키워드", "reason": "콘텐츠 형태 추천 한 줄"}]}` },
 ];
 
-async function fetchTrendKeywords(categoryId) {
+async function fetchTrendKeywords(categoryId, retryCount = 0) {
   const key = API_KEY();
   if (!key) throw new Error("API 키를 설정해주세요.");
 
@@ -380,6 +389,12 @@ async function fetchTrendKeywords(categoryId) {
       tools: [{ type: "web_search_20250305", name: "web_search" }],
     }),
   });
+
+  if (res.status === 429 && retryCount < 2) {
+    const waitSec = 30 + retryCount * 15;
+    await delay(waitSec * 1000);
+    return fetchTrendKeywords(categoryId, retryCount + 1);
+  }
 
   if (!res.ok) {
     const err = await res.text();
@@ -642,6 +657,12 @@ function GenerateTab({ onGenerated }) {
         count++;
         setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
         try {
+          // 채널 간 5초 딜레이 (rate limit 방지)
+          if (count > 1) {
+            setProgress({ current: count, total, label: `⏳ 대기 중... → ${CHANNELS[ch].icon} ${kw.keyword}` });
+            await delay(5000);
+            setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
+          }
           const plan = await callClaude(kw.keyword, ch, kw.note);
           kwResults.channels[ch] = { success: true, plan };
         } catch (err) {
