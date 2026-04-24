@@ -319,6 +319,84 @@ async function callClaude(keyword, channel, note) {
   return JSON.parse(raw);
 }
 
+// ── Trend Keywords via Claude + Web Search ──────────────────────────
+const TREND_CATEGORIES = [
+  { id: "politics", label: "🔥 정치시사", color: "#ff4444", prompt: `오늘 한국 정치시사 분야에서 유튜브 콘텐츠로 만들기 좋은 최신 핫이슈 키워드 5개를 추천해주세요.
+
+규칙:
+- 현재 가장 뜨거운 논쟁/사건 중심
+- 유튜브 정치시사 채널에서 조회수 잘 나올 만한 주제
+- 각 키워드마다 왜 지금 핫한지 한 줄 설명 포함
+- 반드시 아래 JSON 형식만 출력 (마크다운 코드블록 없이)
+
+{"keywords": [{"keyword": "키워드", "reason": "핫한 이유 한 줄"}]}` },
+  { id: "lifestyle", label: "☕ 커피·라이프", color: "#00c73c", prompt: `한국 네이버 블로그에서 커피, 일본 라이프스타일 소품, 인테리어 분야의 최신 트렌드 키워드 5개를 추천해주세요.
+
+규칙:
+- 네이버 검색량이 높을 만한 키워드
+- 커피(원두, 드립, 카페), 일본 소품(SOU SOU, DULTON 등), 미니멀 인테리어 관련
+- 각 키워드마다 블로그 포스팅 각도 한 줄 포함
+- 반드시 아래 JSON 형식만 출력 (마크다운 코드블록 없이)
+
+{"keywords": [{"keyword": "키워드", "reason": "포스팅 각도 한 줄"}]}` },
+  { id: "branding", label: "📸 브랜딩", color: "#e1306c", prompt: `인스타그램 퍼스널 브랜딩에 효과적인 최신 콘텐츠 키워드 5개를 추천해주세요.
+타겟: 커피·인테리어·일본 라이프스타일·크리에이터 라이프 관련 한국 인스타그램.
+
+규칙:
+- 릴스/캐루셀로 반응 좋을 주제
+- 인스타 트렌드와 시즌 이슈 반영
+- 각 키워드마다 콘텐츠 형태 추천 한 줄 포함
+- 반드시 아래 JSON 형식만 출력 (마크다운 코드블록 없이)
+
+{"keywords": [{"keyword": "키워드", "reason": "콘텐츠 형태 추천 한 줄"}]}` },
+];
+
+async function fetchTrendKeywords(categoryId) {
+  const key = API_KEY();
+  if (!key) throw new Error("API 키를 설정해주세요.");
+
+  const category = TREND_CATEGORIES.find((c) => c.id === categoryId);
+  if (!category) throw new Error("잘못된 카테고리");
+
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: category.prompt }],
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API 오류 (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+
+  // Extract text from content blocks (may include tool_use results)
+  let raw = data.content
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  // Strip code fences
+  if (raw.startsWith("```")) {
+    raw = raw.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
+  }
+
+  // Try to extract JSON from the response
+  const jsonMatch = raw.match(/\{[\s\S]*"keywords"[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+
+  return JSON.parse(raw);
+}
+
 // ── Components ───────────────────────────────────────────────────────
 
 function YouTubeResult({ plan }) {
@@ -467,6 +545,44 @@ function GenerateTab({ onGenerated }) {
   const [error, setError] = useState("");
   const resultRef = useRef(null);
 
+  // Trend keywords state
+  const [trendCategory, setTrendCategory] = useState("politics");
+  const [trendKeywords, setTrendKeywords] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState("");
+
+  const loadTrends = async (catId) => {
+    setTrendCategory(catId);
+    setTrendLoading(true);
+    setTrendError("");
+    setTrendKeywords([]);
+    try {
+      const result = await fetchTrendKeywords(catId);
+      setTrendKeywords(result.keywords || []);
+    } catch (err) {
+      setTrendError(err.message);
+    }
+    setTrendLoading(false);
+  };
+
+  const applyTrendKeyword = (kw) => {
+    // If first slot is empty, fill it; otherwise add new
+    if (keywords.length === 1 && !keywords[0].keyword.trim()) {
+      setKeywords([{ keyword: kw.keyword, note: kw.reason || "" }]);
+    } else {
+      setKeywords((prev) => [...prev, { keyword: kw.keyword, note: kw.reason || "" }]);
+    }
+  };
+
+  const applyAllTrends = () => {
+    const newKws = trendKeywords.map((kw) => ({ keyword: kw.keyword, note: kw.reason || "" }));
+    if (keywords.length === 1 && !keywords[0].keyword.trim()) {
+      setKeywords(newKws);
+    } else {
+      setKeywords((prev) => [...prev, ...newKws]);
+    }
+  };
+
   const toggleChannel = (id) => {
     setSelectedChannels((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
@@ -607,6 +723,88 @@ function GenerateTab({ onGenerated }) {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Trend Keywords */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={S.label}>🔥 트렌드 키워드 추천</div>
+          {trendKeywords.length > 0 && (
+            <button style={{ ...S.copyBtn, fontSize: 11, color: "#c9a96e" }} onClick={applyAllTrends}>
+              전체 추가
+            </button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {TREND_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              style={{
+                padding: "7px 12px",
+                borderRadius: "8px",
+                border: trendCategory === cat.id ? `1.5px solid ${cat.color}` : "1.5px solid #3a3f44",
+                background: trendCategory === cat.id ? `${cat.color}18` : "transparent",
+                color: trendCategory === cat.id ? cat.color : "#71767b",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onClick={() => loadTrends(cat.id)}
+              disabled={trendLoading}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        {trendLoading && (
+          <div style={{ textAlign: "center", padding: "20px 0", color: "#71767b", fontSize: 13 }}>
+            <div style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #2f3336", borderTopColor: "#c9a96e", borderRadius: "50%", animation: "spin 0.8s linear infinite", marginRight: 8, verticalAlign: "middle" }} />
+            AI가 최신 트렌드를 검색하고 있어요...
+          </div>
+        )}
+
+        {trendError && (
+          <div style={{ color: "#ff6b6b", fontSize: 13, padding: "8px 0" }}>⚠️ {trendError}</div>
+        )}
+
+        {trendKeywords.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {trendKeywords.map((kw, i) => (
+              <div
+                key={i}
+                onClick={() => applyTrendKeyword(kw)}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  padding: "10px 12px",
+                  background: "#1e2732",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  border: "1px solid transparent",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#c9a96e55"; e.currentTarget.style.background = "#1e273288"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.background = "#1e2732"; }}
+              >
+                <span style={{ fontSize: 13, color: "#c9a96e", fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#e7e9ea", marginBottom: 2 }}>{kw.keyword}</div>
+                  <div style={{ fontSize: 12, color: "#71767b", lineHeight: 1.4 }}>{kw.reason}</div>
+                </div>
+                <span style={{ fontSize: 11, color: "#71767b", flexShrink: 0, marginTop: 2 }}>탭하여 추가 →</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!trendLoading && trendKeywords.length === 0 && !trendError && (
+          <div style={{ textAlign: "center", padding: "16px 0", color: "#71767b", fontSize: 13 }}>
+            카테고리 버튼을 눌러 최신 트렌드 키워드를 받아보세요
+          </div>
+        )}
       </div>
 
       {/* Error */}
