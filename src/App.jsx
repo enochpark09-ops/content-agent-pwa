@@ -37,13 +37,19 @@ const CHANNEL_PROMPTS = {
   youtube: `당신은 한국 정치시사 유튜브 콘텐츠 기획 전문가입니다.
 익명 채널 운영자를 위한 영상 기획안을 작성합니다.
 
+[필수 팩트 - 반드시 준수]
+- 이재명은 2025년 6월 4일 취임한 제21대 대한민국 현직 대통령이다. "대표"가 아닌 "대통령"으로 표기할 것.
+- 윤석열은 내란 혐의로 파면된 전 대통령이다.
+- 현재 여당은 더불어민주당, 야당은 국민의힘이다.
+- 웹 검색 결과를 기반으로 할 때, 확인되지 않은 수치나 사건을 임의로 만들지 말 것.
+- 여론조사 수치를 인용할 경우, 반드시 웹 검색으로 확인된 실제 수치만 사용할 것.
+
 채널 운영자 성향:
-- 중도이지만 다소 진보에 가까운 중도진보 성향
-- 소위 '뉴이재명' 지지층에 해당하는 관점
+- 중도이지만 다소 진보에 가까운 중도진보 성향 (뉴이재명 지지층)
 - 합리적 진보의 시각에서 정책과 정국을 분석
-- 맹목적 진영논리가 아닌, 팩트와 데이터 기반의 논리적 비판
-- 보수 정권의 정책 실패나 모순은 날카롭게 지적하되, 진보 진영의 문제도 건설적으로 언급
-- 이재명 대표/더불어민주당의 정책 방향에 대체로 공감하면서도 무조건적 옹호는 지양
+- 팩트와 데이터 기반의 논리적 비판
+- 야당(국민의힘)의 정책이나 정치 행태를 날카롭게 지적하되, 여당 내부 문제도 건설적으로 언급
+- 이재명 대통령/이재명 정부의 정책 방향에 대체로 공감하면서도 무조건적 옹호는 지양
 
 출력 형식 (JSON):
 {
@@ -60,6 +66,7 @@ const CHANNEL_PROMPTS = {
 
 규칙:
 - 자극적이되 팩트 기반, 선동 금지
+- 확인되지 않은 사실이나 수치를 절대 만들어내지 말 것 (팩트체크 최우선)
 - 중도진보 시청자층이 공감할 수 있는 논조와 프레이밍
 - 익명 채널이므로 신원 노출 위험 요소 체크
 - 한국 정치 맥락에 맞는 이슈 연결
@@ -301,7 +308,7 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
   const systemPrompt = CHANNEL_PROMPTS[channel];
   let userMsg = `키워드: ${keyword}`;
   if (note) userMsg += `\n참고사항: ${note}`;
-  userMsg += "\n\n위 키워드로 콘텐츠 기획안을 JSON 형식으로 작성해주세요.";
+  userMsg += "\n\n위 키워드에 대해 웹 검색으로 최신 팩트를 확인한 후, 콘텐츠 기획안을 JSON 형식으로 작성해주세요. 확인되지 않은 사실이나 수치를 만들어내지 마세요.";
 
   const res = await fetch(API_URL, {
     method: "POST",
@@ -311,6 +318,7 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
       max_tokens: 2000,
       system: systemPrompt,
       messages: [{ role: "user", content: userMsg }],
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
     }),
   });
 
@@ -327,11 +335,22 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
   }
 
   const data = await res.json();
-  let raw = data.content[0].text.trim();
+  // Extract text from multi-block response (web search may produce multiple blocks)
+  let raw = data.content
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
 
   // Strip code fences
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
+  if (raw.includes("```")) {
+    raw = raw.replace(/```[a-z]*\n?/g, "").replace(/```/g, "").trim();
+  }
+
+  // Try to extract JSON object from response (may have surrounding text from web search)
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
   }
 
   return JSON.parse(raw);
@@ -341,12 +360,14 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
 const TREND_CATEGORIES = [
   { id: "politics", label: "🔥 정치시사", color: "#ff4444", prompt: `오늘 한국 정치시사 분야에서 유튜브 콘텐츠로 만들기 좋은 최신 핫이슈 키워드 5개를 추천해주세요.
 
+기본 팩트: 이재명은 2025년 6월 4일 취임한 제21대 현직 대통령. 윤석열은 내란으로 파면된 전 대통령. 여당=더불어민주당, 야당=국민의힘.
 채널 성향: 중도진보(뉴이재명 지지층) 시각. 합리적 진보 관점에서 정국을 분석하며, 팩트 기반 비판을 중시.
 
 규칙:
 - 현재 가장 뜨거운 논쟁/사건 중심
 - 중도진보 시청자층이 관심 가질 만한 주제 우선
 - 유튜브 정치시사 채널에서 조회수 잘 나올 만한 주제
+- 확인되지 않은 사실이나 수치를 만들어내지 말 것
 - 각 키워드마다 왜 지금 핫한지 한 줄 설명 포함
 - 반드시 아래 JSON 형식만 출력 (마크다운 코드블록 없이)
 
