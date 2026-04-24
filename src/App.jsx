@@ -308,18 +308,31 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
   const systemPrompt = CHANNEL_PROMPTS[channel];
   let userMsg = `키워드: ${keyword}`;
   if (note) userMsg += `\n참고사항: ${note}`;
-  userMsg += "\n\n위 키워드에 대해 웹 검색으로 최신 팩트를 확인한 후, 콘텐츠 기획안을 JSON 형식으로 작성해주세요. 확인되지 않은 사실이나 수치를 만들어내지 마세요.";
+
+  // 유튜브(정치시사)는 웹 검색으로 팩트 확인, 블로그/인스타는 웹 검색 불필요
+  const useWebSearch = (channel === "youtube");
+
+  if (useWebSearch) {
+    userMsg += "\n\n위 키워드에 대해 웹 검색으로 최신 팩트를 확인한 후, 콘텐츠 기획안을 JSON 형식으로 작성해주세요. 확인되지 않은 사실이나 수치를 만들어내지 마세요.";
+  } else {
+    userMsg += "\n\n위 키워드로 콘텐츠 기획안을 JSON 형식으로 작성해주세요. 반드시 JSON만 출력하세요.";
+  }
+
+  const bodyPayload = {
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 2000,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMsg }],
+  };
+
+  if (useWebSearch) {
+    bodyPayload.tools = [{ type: "web_search_20250305", name: "web_search" }];
+  }
 
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMsg }],
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-    }),
+    body: JSON.stringify(bodyPayload),
   });
 
   if (res.status === 429 && retryCount < 2) {
@@ -343,17 +356,34 @@ async function callClaude(keyword, channel, note, retryCount = 0) {
     .trim();
 
   // Strip code fences
-  if (raw.includes("```")) {
-    raw = raw.replace(/```[a-z]*\n?/g, "").replace(/```/g, "").trim();
+  raw = raw.replace(/```[a-z]*\n?/g, "").replace(/```/g, "").trim();
+
+  // Try to find and parse the deepest valid JSON object
+  // Strategy: find the last { and work backwards to find matching pairs
+  let parsed = null;
+
+  // Method 1: try direct parse
+  try { parsed = JSON.parse(raw); } catch {}
+
+  // Method 2: find JSON block by matching braces
+  if (!parsed) {
+    let depth = 0, start = -1;
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] === '{') { if (depth === 0) start = i; depth++; }
+      else if (raw[i] === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try {
+            parsed = JSON.parse(raw.substring(start, i + 1));
+            break;  // Take the first valid complete JSON
+          } catch { start = -1; }
+        }
+      }
+    }
   }
 
-  // Try to extract JSON object from response (may have surrounding text from web search)
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
-
-  return JSON.parse(raw);
+  if (parsed) return parsed;
+  throw new Error(`JSON 파싱 실패. 원본 응답 일부: ${raw.substring(0, 200)}...`);
 }
 
 // ── Trend Keywords via Claude + Web Search ──────────────────────────
@@ -678,10 +708,13 @@ function GenerateTab({ onGenerated }) {
         count++;
         setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
         try {
-          // 채널 간 5초 딜레이 (rate limit 방지)
+          // 유튜브(웹검색 포함) 후에는 30초, 나머지는 10초 대기
           if (count > 1) {
-            setProgress({ current: count, total, label: `⏳ 대기 중(15초)... → ${CHANNELS[ch].icon} ${kw.keyword}` });
-            await delay(15000);
+            const prevIdx = count - 2;
+            const prevChannel = selectedChannels[prevIdx % selectedChannels.length];
+            const waitSec = (prevChannel === "youtube") ? 30 : 10;
+            setProgress({ current: count, total, label: `⏳ 대기 중(${waitSec}초)... → ${CHANNELS[ch].icon} ${kw.keyword}` });
+            await delay(waitSec * 1000);
             setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
           }
           const plan = await callClaude(kw.keyword, ch, kw.note);
