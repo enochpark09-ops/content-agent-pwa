@@ -71,7 +71,7 @@ const CHANNEL_PROMPTS = {
 - 익명 채널이므로 신원 노출 위험 요소 체크
 - 한국 정치 맥락에 맞는 이슈 연결
 - 제목은 클릭 유도하되 낚시 아닌 실질적 내용 반영
-- 반드시 JSON만 출력 (마크다운 코드블록 없이)`,
+- 반드시 유효한 JSON 객체 하나만 출력하세요. 다른 텍스트, 설명, 마크다운 코드블록을 절대 포함하지 마세요. 첫 글자가 { 이고 마지막 글자가 } 여야 합니다.`,
 
   blog: `당신은 네이버 블로그 SEO 전문가이자 커피/라이프스타일 콘텐츠 기획자입니다.
 '원두웍스' 블로그의 콘텐츠 기획안을 작성합니다. 이 블로그는 더블와이스페이스 스마트스토어(일본 라이프스타일 소품, SOU SOU, DULTON)로의 유입도 겸합니다.
@@ -96,7 +96,7 @@ const CHANNEL_PROMPTS = {
 - 네이버 검색 로직(C-Rank, D.I.A.)을 고려한 키워드 배치
 - 자연스럽게 스마트스토어 상품 연결
 - 2000-3000자 분량 기준
-- 반드시 JSON만 출력 (마크다운 코드블록 없이)`,
+- 반드시 유효한 JSON 객체 하나만 출력하세요. 다른 텍스트, 설명, 마크다운 코드블록을 절대 포함하지 마세요. 첫 글자가 { 이고 마지막 글자가 } 여야 합니다.`,
 
   instagram: `당신은 인스타그램 퍼스널 브랜딩 전문가입니다.
 개인 브랜딩용 인스타그램 콘텐츠 기획안을 작성합니다.
@@ -119,7 +119,7 @@ const CHANNEL_PROMPTS = {
 - 더블와이스페이스 브랜드 톤: 세련되고 따뜻한, 미니멀 재패니즈
 - 해시태그는 대형(100만+), 중형(1만-100만), 소형(1만 미만) 혼합
 - 진정성 있는 퍼스널 콘텐츠 지향
-- 반드시 JSON만 출력 (마크다운 코드블록 없이)`,
+- 반드시 유효한 JSON 객체 하나만 출력하세요. 다른 텍스트, 설명, 마크다운 코드블록을 절대 포함하지 마세요. 첫 글자가 { 이고 마지막 글자가 } 여야 합니다.`,
 };
 
 // ── Styles ────────────────────────────────────────────────────────────
@@ -708,11 +708,11 @@ function GenerateTab({ onGenerated }) {
         count++;
         setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
         try {
-          // 유튜브(웹검색 포함) 후에는 30초, 나머지는 10초 대기
+          // 유튜브(웹검색) 후에는 45초, 나머지는 20초 대기
           if (count > 1) {
             const prevIdx = count - 2;
             const prevChannel = selectedChannels[prevIdx % selectedChannels.length];
-            const waitSec = (prevChannel === "youtube") ? 30 : 10;
+            const waitSec = (prevChannel === "youtube") ? 45 : 20;
             setProgress({ current: count, total, label: `⏳ 대기 중(${waitSec}초)... → ${CHANNELS[ch].icon} ${kw.keyword}` });
             await delay(waitSec * 1000);
             setProgress({ current: count, total, label: `${CHANNELS[ch].icon} ${kw.keyword}` });
@@ -947,7 +947,18 @@ function GenerateTab({ onGenerated }) {
                       ch === "blog" ? <BlogResult plan={result.plan} /> :
                       <InstagramResult plan={result.plan} />
                     ) : (
-                      <div style={{ color: "#ff6b6b", fontSize: 14 }}>❌ {result.error}</div>
+                      <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                        <div style={{ color: "#ff6b6b", marginBottom: 8 }}>
+                          ❌ {result.error.includes("429") ? "API 요청 한도 초과 — 1~2분 후 다시 시도해주세요." :
+                              result.error.includes("JSON") ? "AI 응답 형식 오류 — 다시 시도하면 해결될 수 있어요." :
+                              result.error}
+                        </div>
+                        {result.error.includes("429") && (
+                          <div style={{ fontSize: 12, color: "#8899a6" }}>
+                            💡 팁: 채널을 1~2개만 선택하면 성공률이 높아져요.
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
